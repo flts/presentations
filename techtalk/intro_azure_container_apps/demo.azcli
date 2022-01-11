@@ -1,0 +1,198 @@
+# Demo
+
+### do not forget to login ;)
+docker login ghcr.io
+az login
+az extension add --source https://workerappscliextension.blob.core.windows.net/azure-cli-extension/containerapp-0.2.0-py2.py3-none-any.whl
+az provider register --namespace Microsoft.Web
+
+## Set following environment variables
+$location="northeurope"
+$rgName="rg-techtalk"
+$rgSharedName="rg-techtalk-shared"
+$lawName="law-techtalk"
+$containerAppEnvName="cae-techtalk-intro"
+
+## Create environment (prepared)
+az group create -n $rgSharedName -l $location
+az monitor log-analytics workspace create -n $lawName -g $rgSharedName
+
+
+## Create new environment
+az group create -n $rgName -l $location
+$lawClientId=$(az monitor log-analytics workspace show --query customerId -g $rgSharedName -n $lawName --out tsv)
+$lawClientSecret=$(az monitor log-analytics workspace get-shared-keys --query primarySharedKey -g $rgSharedName -n $lawName --out tsv)
+az containerapp env create -n $containerAppEnvName -g $rgName -l $location `
+    --logs-workspace-id $lawClientId --logs-workspace-key $lawClientSecret
+
+# Show solution
+
+
+# Deploy frontend
+
+## Build image
+docker build -t techtalk-weather-frontend:1.0 ./src/webapp
+## Publish image to github
+docker tag techtalk-weather-frontend:1.0 ghcr.io/flts/techtalk-weather-frontend:1.0
+docker push ghcr.io/flts/techtalk-weather-frontend:1.0
+## Create container app for Frontend 
+az containerapp create -n techtalk-weather-frontend -g $rgName --environment $containerAppEnvName `
+    --image ghcr.io/flts/techtalk-weather-frontend:1.0 `
+    --target-port 80 `
+    --ingress 'external' `
+    --min-replicas 1 `
+    --max-replicas 1 `
+    --query configuration.ingress.fqdn
+
+
+## Show website
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Create and publish container app for weather API
+## Build image
+docker build -t techtalk-weather-api:1.0 ./src/weatherapi
+## Publish image to github
+docker tag techtalk-weather-api:1.0 ghcr.io/flts/techtalk-weather-api:1.0
+docker push ghcr.io/flts/techtalk-weather-api:1.0
+## Create Container App
+az containerapp create -n techtalk-weather-api -g $rgName --environment $containerAppEnvName `
+    --image ghcr.io/flts/techtalk-weather-api:1.0 `
+    --target-port 80 `
+    --ingress 'internal' `
+    --min-replicas 1 `
+    --query configuration.ingress.fqdn
+
+## Show api
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Update web app to fetch from weather api
+## uncomment code
+
+## Build & Publish image to github
+docker build -t techtalk-weather-frontend:2.0 ./src/webapp
+docker tag techtalk-weather-frontend:2.0 ghcr.io/flts/techtalk-weather-frontend:2.0
+docker push ghcr.io/flts/techtalk-weather-frontend:2.0
+
+## Update container app for Frontend 
+$API_FQDN=$(az containerapp show -g $rgName -n techtalk-weather-api --query configuration.ingress.fqdn -o tsv)
+
+az containerapp update -n techtalk-weather-frontend -g $rgName `
+    --image ghcr.io/flts/techtalk-weather-frontend:2.0 `
+    --secrets "api-fqdn-secret=https://$API_FQDN" `
+    --environment-variables "API_FQDN=secretref:api-fqdn-secret,key=value" `
+    --min-replicas 1 `
+    --max-replicas 1
+
+## Show website
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Update traffic-splitting
+az containerapp revision list -n techtalk-weather-frontend -g $rgName --query [].name -o tsv
+
+az containerapp update -n techtalk-weather-frontend -g $rgName `
+    --traffic-weight techtalk-weather-frontend--5mui4wf=50,latest=50'
+
+# reset to default behavior, latest revision gets 100% traffic automatically
+az containerapp update -n techtalk-weather-frontend -g $rgName `
+    --traffic-weight latest=100
+
+
+
+
+# cleanup resources
+az group delete -n $rgName
+
+az group delete -n $rgSharedName
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# scaling test
+
+az containerapp update -n techtalk-weather-frontend -g $rgName `
+    --image ghcr.io/flts/techtalk-weather-frontend:2.0 `
+    --secrets "api-fqdn-secret=https://$API_FQDN" `
+    --environment-variables "API_FQDN=secretref:api-fqdn-secret,key=value" `
+    --min-replicas 0 `
+    --max-replicas 10 `
+    --scale-rules ./deploy/httpscaler.json 
+

@@ -1,0 +1,6 @@
+﻿@page "/appsettings"
+@inject IConfiguration Configuration
+
+<h1>AppSettings</h1>
+
+<pre>@((Configuration as IConfigurationRoot).GetDebugView())</pre>
